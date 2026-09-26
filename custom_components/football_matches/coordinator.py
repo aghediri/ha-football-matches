@@ -1,6 +1,7 @@
 """Data update coordinator for Football Matches."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -17,7 +18,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class FootballCoordinator(DataUpdateCoordinator):
-    """Fetches fixtures from football-data.org for the configured competitions."""
+    """Fetches fixtures from football-data.org, one competition at a time.
+
+    The free tier restricts multi-competition + wide date-range queries, so we
+    query each competition individually using status=SCHEDULED (which the free
+    tier serves reliably) and filter to the upcoming window client-side.
+    """
 
     def __init__(self, hass: HomeAssistant, api_token: str, upcoming_days: int, scan_minutes: int):
         super().__init__(
@@ -30,35 +36,44 @@ class FootballCoordinator(DataUpdateCoordinator):
         self._upcoming_days = upcoming_days
         self._session = async_get_clientsession(hass)
 
-    async def _async_update_data(self):
-        """Fetch matches for today + the upcoming window across all competitions."""
-        today = datetime.now(timezone.utc).date()
-        date_from = today.isoformat()
-        date_to = (today + timedelta(days=self._upcoming_days)).isoformat()
-        comps = ",".join(COMPETITIONS.keys())
-        url = (
-            f"{API_BASE}/matches"
-            f"?competitions={comps}&dateFrom={date_from}&dateTo={date_to}"
-        )
+    async def _fetch_competition(self, code: str) -> list[dict]:
+        """Fetch scheduled + in-play + recently finished matches for one competition."""
+        url = f"{API_BASE}/competitions/{code}/matches"
         headers = {"X-Auth-Token": self._token}
-
         try:
             async with async_timeout.timeout(20):
                 async with self._session.get(url, headers=headers) as resp:
                     if resp.status == 429:
-                        raise UpdateFailed("Rate limited by football-data.org (429)")
-                    if resp.status == 403:
-                        raise UpdateFailed("Invalid API token (403)")
+                        _LOGGER.warning("Rate limited on %s (429)", code)
+                        return []
+                    if resp.status in (403, 400):
+                        _LOGGER.warning("Competition %s not available (%s)", code, resp.status)
+                        return []
                     resp.raise_for_status()
                     data = await resp.json()
-        except aiohttp.ClientError as err:
-            raise UpdateFailed(f"Error fetching matches: {err}") from err
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.warning("Error fetching %s: %s", code, err)
+            return []
+        return data.get("matches", [])
 
-        matches = data.get("matches", [])
-        parsed = [self._parse_match(m) for m in matches]
-        # sort by kickoff time
+    async def _async_update_data(self):
+        """Fetch all competitions individually and merge."""
+        results = await asyncio.gather(
+            *[self._fetch_competition(code) for code in COMPETITIONS],
+            return_exceptions=True,
+        )
+        raw = []
+        for res in results:
+            if isinstance(res, list):
+                raw.extend(res)
+
+        if not raw:
+            # Not necessarily an error — could be off-season/international break.
+            _LOGGER.debug("No matches returned across competitions")
+
+        parsed = [self._parse_match(m) for m in raw]
         parsed.sort(key=lambda m: m["utc_date"] or "")
-        return self._organize(parsed, today)
+        return self._organize(parsed)
 
     @staticmethod
     def _parse_match(m: dict) -> dict:
@@ -82,33 +97,55 @@ class FootballCoordinator(DataUpdateCoordinator):
             "away_score": score.get("away"),
         }
 
-    def _organize(self, matches: list[dict], today) -> dict:
-        """Split matches into today, upcoming, per-league, and find the next one."""
-        today_matches = []
-        upcoming = []
+    def _organize(self, matches: list[dict]) -> dict:
+        """Split into today, upcoming window, per-league, next match."""
         now = datetime.now(timezone.utc)
-        next_match = None
+        today = now.date()
+        window_end = today + timedelta(days=self._upcoming_days)
+
+        today_matches, upcoming, next_match = [], [], None
+        per_league = {code: [] for code in COMPETITIONS}
 
         for m in matches:
             if not m["utc_date"]:
                 continue
-            kickoff = datetime.fromisoformat(m["utc_date"].replace("Z", "+00:00"))
+            try:
+                kickoff = datetime.fromisoformat(m["utc_date"].replace("Z", "+00:00"))
+            except ValueError:
+                continue
             m["kickoff_local"] = kickoff.isoformat()
-            if kickoff.date() == today:
+            kdate = kickoff.date()
+
+            # today's fixtures
+            if kdate == today:
                 today_matches.append(m)
-            else:
+            # upcoming within window (future, excluding today)
+            elif today < kdate <= window_end:
                 upcoming.append(m)
-            # next match = first not-yet-finished fixture in the future
-            if next_match is None and kickoff >= now and m["status"] in (
-                "SCHEDULED", "TIMED", "IN_PLAY", "PAUSED",
+
+            # per-league: today + upcoming window only (keeps attrs small)
+            if today <= kdate <= window_end:
+                code = m.get("competition_code")
+                if code in per_league:
+                    per_league[code].append(m)
+
+            # next match = earliest future not-yet-finished fixture
+            if (
+                next_match is None
+                and kickoff >= now
+                and m["status"] in ("SCHEDULED", "TIMED", "IN_PLAY", "PAUSED")
             ):
                 next_match = m
 
-        per_league = {code: [] for code in COMPETITIONS}
-        for m in matches:
-            code = m.get("competition_code")
-            if code in per_league:
-                per_league[code].append(m)
+        # If nothing in the window, still surface the very next fixture overall
+        if next_match is None:
+            future = [
+                m for m in matches
+                if m["utc_date"]
+                and datetime.fromisoformat(m["utc_date"].replace("Z", "+00:00")) >= now
+            ]
+            if future:
+                next_match = future[0]
 
         return {
             "today": today_matches,
