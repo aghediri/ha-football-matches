@@ -1,3 +1,5 @@
+<p align="center"><img src="logo.png" width="140" alt="Football Matches"></p>
+
 # Football Matches — Home Assistant Integration
 
 Shows today's and upcoming fixtures for the top European football (soccer) leagues in Home Assistant, powered by the free [football-data.org](https://www.football-data.org) API.
