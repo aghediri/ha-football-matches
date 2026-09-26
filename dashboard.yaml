@@ -5,11 +5,13 @@
 #     https://github.com/PiotrMachowski/Home-Assistant-Lovelace-HTML-Jinja2-Template-card
 #     category: Dashboard  -> Download -> restart HA -> hard-refresh
 #
-# Then create a new dashboard (Settings -> Dashboards -> + Add Dashboard ->
-# New dashboard from scratch), open it -> Edit -> Raw configuration editor,
-# and paste the contents below.
+# Then: Settings -> Dashboards -> + Add Dashboard -> New dashboard from scratch ->
+# Edit -> Raw configuration editor, and paste the contents below.
 #
-# Sensor entity IDs assume the default config-entry name "Football Matches"
+# Live scores (🔴 minute + in-play score) appear automatically if you added an
+# API-Football key in the integration options. Otherwise scores show at full-time.
+#
+# Sensor IDs assume the default config-entry name "Football Matches"
 # (sensor.football_matches_*). Adjust if yours differ.
 
 title: Football
@@ -36,12 +38,14 @@ views:
             .fb tr:nth-child(even){background:rgba(127,127,127,.06)}
             .fb tr:hover{background:var(--primary-color);color:#fff}
             .fb td{padding:10px;vertical-align:middle}
-            .fb .tm{color:var(--secondary-text-color);width:60px}
+            .fb .tm{color:var(--secondary-text-color);width:64px}
             .fb .home{text-align:right}
             .fb .crest{height:24px;width:24px;object-fit:contain;vertical-align:middle;margin:0 6px}
             .fb .vs{text-align:center;opacity:.5;width:34px}
-            .fb .score{text-align:center;width:70px}
+            .fb .score{text-align:center;width:78px}
             .fb .score span{background:var(--secondary-background-color);border-radius:6px;padding:3px 10px;font-weight:700}
+            .fb .live span{background:#e5342b;color:#fff}
+            .fb .livemin{color:#e5342b;font-weight:700;font-size:12px}
           </style>
           <div class="fb">
             {% set nm='sensor.football_matches_next_match' %}
@@ -68,11 +72,11 @@ views:
               {% if d!=ns.day %}{% set ns.day=d %}{% if not loop.first %}</table>{% endif %}
               <div class="day">📅 {{ d }}</div><table>{% endif %}
               <tr>
-                <td class="tm">{{ as_timestamp(m.utc_date)|timestamp_custom('%H:%M') }}</td>
+                <td class="tm">{% if m.is_live %}<span class="livemin">🔴 {{ m.minute }}'</span>{% else %}{{ as_timestamp(m.utc_date)|timestamp_custom('%H:%M') }}{% endif %}</td>
                 <td class="home">{{ m.home }}<img class="crest" src="{{ m.home_crest }}"></td>
                 <td class="vs">v</td>
                 <td><img class="crest" src="{{ m.away_crest }}">{{ m.away }}</td>
-                <td class="score"><span>{% if m.home_score is not none %}{{ m.home_score }}–{{ m.away_score }}{% else %}—{% endif %}</span></td>
+                <td class="score {% if m.is_live %}live{% endif %}"><span>{% if m.home_score is not none %}{{ m.home_score }}–{{ m.away_score }}{% else %}—{% endif %}</span></td>
               </tr>
               {% if loop.last %}</table>{% endif %}
               {% endfor %}
