@@ -3,15 +3,17 @@
     "step": {
       "user": {
         "title": "Football Matches",
-        "description": "Enter your free football-data.org API token. Register at https://www.football-data.org/client/register",
+        "description": "Enter your free football-data.org API token (register at https://www.football-data.org/client/register). Optionally add an API-Football key (api-sports.io) for live in-play scores.",
         "data": {
-          "api_token": "API Token",
+          "api_token": "football-data.org API Token",
+          "live_api_token": "API-Football key (optional, for live scores)",
           "upcoming_days": "Upcoming days to show"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid API token — check it and try again."
+      "invalid_auth": "Invalid football-data.org token — check it and try again.",
+      "invalid_live_auth": "Invalid API-Football key — check it or leave it blank."
     },
     "abort": {
       "already_configured": "Football Matches is already configured."
@@ -22,7 +24,8 @@
       "init": {
         "title": "Football Matches Options",
         "data": {
-          "upcoming_days": "Upcoming days to show"
+          "upcoming_days": "Upcoming days to show",
+          "live_api_token": "API-Football key (optional, for live scores)"
         }
       }
     }

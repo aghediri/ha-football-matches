@@ -10,29 +10,56 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import COMPETITIONS, DOMAIN
+from .team_aliases import match_key
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     """Set up sensors from a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    store = hass.data[DOMAIN][entry.entry_id]
+    coordinator = store["fixtures"]
+    live = store.get("live")
+
     entities = [
-        TodayMatchesSensor(coordinator, entry),
-        UpcomingMatchesSensor(coordinator, entry),
-        NextMatchSensor(coordinator, entry),
+        TodayMatchesSensor(coordinator, entry, live),
+        UpcomingMatchesSensor(coordinator, entry, live),
+        NextMatchSensor(coordinator, entry, live),
     ]
     for code, name in COMPETITIONS.items():
-        entities.append(LeagueSensor(coordinator, entry, code, name))
+        entities.append(LeagueSensor(coordinator, entry, code, name, live))
+    if live is not None:
+        entities.append(LiveScoresSensor(live, coordinator, entry))
     async_add_entities(entities)
 
 
-class _Base(CoordinatorEntity, SensorEntity):
-    """Shared device + coordinator wiring."""
+def _merge_live(matches, live_data):
+    """Return a copy of matches with live score/minute merged in where available."""
+    if not live_data:
+        return matches
+    live = live_data.get("live", {})
+    if not live:
+        return matches
+    out = []
+    for m in matches:
+        mm = dict(m)
+        key = match_key(m.get("home", ""), m.get("away", ""))
+        if key in live:
+            lv = live[key]
+            mm["home_score"] = lv.get("home_score", mm.get("home_score"))
+            mm["away_score"] = lv.get("away_score", mm.get("away_score"))
+            mm["minute"] = lv.get("minute")
+            mm["live_status"] = lv.get("status_short")
+            mm["is_live"] = lv.get("status_short") in ("1H", "2H", "ET", "LIVE", "HT", "P", "BT")
+        out.append(mm)
+    return out
 
+
+class _Base(CoordinatorEntity, SensorEntity):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry):
+    def __init__(self, coordinator, entry, live=None):
         super().__init__(coordinator)
         self._entry = entry
+        self._live = live
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -45,8 +72,6 @@ class _Base(CoordinatorEntity, SensorEntity):
 
 
 class TodayMatchesSensor(_Base):
-    """Number of matches today, with the full list in attributes."""
-
     _attr_icon = "mdi:soccer"
     _attr_name = "Today"
 
@@ -60,12 +85,11 @@ class TodayMatchesSensor(_Base):
 
     @property
     def extra_state_attributes(self):
-        return {"matches": self.coordinator.data.get("today", [])}
+        ld = self._live.data if self._live else None
+        return {"matches": _merge_live(self.coordinator.data.get("today", []), ld)}
 
 
 class UpcomingMatchesSensor(_Base):
-    """Number of upcoming matches in the window, list in attributes."""
-
     _attr_icon = "mdi:calendar-clock"
     _attr_name = "Upcoming"
 
@@ -83,8 +107,6 @@ class UpcomingMatchesSensor(_Base):
 
 
 class NextMatchSensor(_Base):
-    """The next upcoming fixture; state = a readable summary, plus countdown."""
-
     _attr_icon = "mdi:soccer-field"
     _attr_name = "Next Match"
 
@@ -105,7 +127,6 @@ class NextMatchSensor(_Base):
         if not m:
             return {}
         attrs = dict(m)
-        # add a minutes-until countdown
         try:
             kickoff = datetime.fromisoformat(m["utc_date"].replace("Z", "+00:00"))
             delta = kickoff - datetime.now(timezone.utc)
@@ -118,12 +139,10 @@ class NextMatchSensor(_Base):
 
 
 class LeagueSensor(_Base):
-    """Per-competition sensor: count + matches list."""
-
     _attr_icon = "mdi:trophy"
 
-    def __init__(self, coordinator, entry, code, name):
-        super().__init__(coordinator, entry)
+    def __init__(self, coordinator, entry, code, name, live=None):
+        super().__init__(coordinator, entry, live)
         self._code = code
         self._attr_name = name
 
@@ -138,4 +157,39 @@ class LeagueSensor(_Base):
     @property
     def extra_state_attributes(self):
         matches = self.coordinator.data.get("per_league", {}).get(self._code, [])
-        return {"competition_code": self._code, "matches": matches}
+        ld = self._live.data if self._live else None
+        return {"competition_code": self._code, "matches": _merge_live(matches, ld)}
+
+
+class LiveScoresSensor(CoordinatorEntity, SensorEntity):
+    """Number of matches currently live, with details in attributes."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:soccer"
+    _attr_name = "Live Scores"
+
+    def __init__(self, live_coordinator, fixtures_coordinator, entry):
+        super().__init__(live_coordinator)
+        self._entry = entry
+        self._fixtures = fixtures_coordinator
+
+    @property
+    def unique_id(self):
+        return f"{self._entry.entry_id}_live"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(identifiers={(DOMAIN, self._entry.entry_id)}, name="Football Matches")
+
+    @property
+    def native_value(self):
+        return len((self.coordinator.data or {}).get("live", {}))
+
+    @property
+    def extra_state_attributes(self):
+        d = self.coordinator.data or {}
+        return {
+            "polling": d.get("polling", False),
+            "calls_today": d.get("calls_today", 0),
+            "live": d.get("live", {}),
+        }

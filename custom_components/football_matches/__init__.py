@@ -7,12 +7,14 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_API_TOKEN,
+    CONF_LIVE_API_TOKEN,
     CONF_UPCOMING_DAYS,
     DEFAULT_SCAN_INTERVAL_MINUTES,
     DEFAULT_UPCOMING_DAYS,
     DOMAIN,
 )
 from .coordinator import FootballCoordinator
+from .live_coordinator import LiveScoreCoordinator
 
 PLATFORMS = [Platform.SENSOR]
 
@@ -28,7 +30,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    # Optional live-score coordinator (API-Football) — only if a live token is set
+    live_coordinator = None
+    live_token = entry.options.get(
+        CONF_LIVE_API_TOKEN, entry.data.get(CONF_LIVE_API_TOKEN, "")
+    )
+    if live_token:
+        live_coordinator = LiveScoreCoordinator(hass, live_token, coordinator)
+        await live_coordinator.async_config_entry_first_refresh()
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "fixtures": coordinator,
+        "live": live_coordinator,
+    }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     return True

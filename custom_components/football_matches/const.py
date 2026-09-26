@@ -4,6 +4,7 @@ DOMAIN = "football_matches"
 
 CONF_API_TOKEN = "api_token"
 CONF_UPCOMING_DAYS = "upcoming_days"
+CONF_LIVE_API_TOKEN = "live_api_token"   # optional API-Football key for live scores
 
 DEFAULT_UPCOMING_DAYS = 7
 DEFAULT_SCAN_INTERVAL_MINUTES = 30

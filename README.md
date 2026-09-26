@@ -38,3 +38,28 @@ Copy `custom_components/football_matches/` into your HA `config/custom_component
 ## Notes
 - Free tier is rate-limited (~10 req/min); the integration polls every 30 minutes.
 - Times are stored in UTC (`utc_date`); use `as_timestamp`/`as_local` in dashboard templates to display local time.
+
+
+## Dashboard (optional)
+
+A ready-made styled dashboard is included: [`dashboard.yaml`](dashboard.yaml).
+
+It shows a gradient **Next Match** hero, then one card per league with club
+crests, league logos, matches grouped under date headers, and a score column
+(shows `—` until played).
+
+**Requires** the [HTML Jinja2 Template card](https://github.com/PiotrMachowski/Home-Assistant-Lovelace-HTML-Jinja2-Template-card):
+1. HACS → ⋮ → **Custom repositories** → add
+   `https://github.com/PiotrMachowski/Home-Assistant-Lovelace-HTML-Jinja2-Template-card`,
+   category **Dashboard** → Download → restart HA → hard-refresh.
+
+**Apply the dashboard:**
+1. Settings → Dashboards → **+ Add Dashboard** → *New dashboard from scratch*.
+2. Open it → **⋮ → Edit → ⋮ → Raw configuration editor**.
+3. Paste the contents of [`dashboard.yaml`](dashboard.yaml) → **Save**.
+
+> Entity IDs assume the default config-entry name *Football Matches*
+> (`sensor.football_matches_*`). Adjust the template if yours differ.
+
+A simpler **no-extra-card** variant using only the built-in Markdown card is
+also possible (logos + grouped dates, less styling) — see the wiki/issues.

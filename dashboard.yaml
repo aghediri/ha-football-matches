@@ -1,0 +1,82 @@
+# Football Matches — Dashboard template
+#
+# Requires the "HTML Jinja2 Template card" (html-template-card) frontend card:
+#   HACS -> Custom repositories ->
+#     https://github.com/PiotrMachowski/Home-Assistant-Lovelace-HTML-Jinja2-Template-card
+#     category: Dashboard  -> Download -> restart HA -> hard-refresh
+#
+# Then create a new dashboard (Settings -> Dashboards -> + Add Dashboard ->
+# New dashboard from scratch), open it -> Edit -> Raw configuration editor,
+# and paste the contents below.
+#
+# Sensor entity IDs assume the default config-entry name "Football Matches"
+# (sensor.football_matches_*). Adjust if yours differ.
+
+title: Football
+views:
+  - title: Football
+    path: football
+    icon: mdi:soccer
+    type: panel
+    cards:
+      - type: custom:html-template-card
+        ignore_line_breaks: true
+        content: >
+          <style>
+            .fb{font-family:var(--primary-font-family);color:var(--primary-text-color)}
+            .fb .hero{background:linear-gradient(135deg,#1e3a5f,#2ec27e);border-radius:16px;padding:18px 22px;color:#fff;margin-bottom:20px}
+            .fb .hero .teams{display:flex;align-items:center;gap:14px;font-size:22px;font-weight:700}
+            .fb .hero img{height:42px;background:#fff;border-radius:8px;padding:3px}
+            .fb .hero .meta{opacity:.9;margin-top:8px;font-size:14px}
+            .fb .league{background:var(--card-background-color);border-radius:14px;padding:14px 18px;margin-bottom:18px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+            .fb .league h2{display:flex;align-items:center;gap:12px;font-size:20px;margin:0 0 10px;padding-bottom:10px;border-bottom:2px solid var(--divider-color)}
+            .fb .league h2 img{height:30px}
+            .fb .day{background:var(--secondary-background-color);border-radius:8px;padding:6px 12px;margin:14px 0 6px;font-weight:700;font-size:14px}
+            .fb table{width:100%;border-collapse:collapse}
+            .fb tr:nth-child(even){background:rgba(127,127,127,.06)}
+            .fb tr:hover{background:var(--primary-color);color:#fff}
+            .fb td{padding:10px;vertical-align:middle}
+            .fb .tm{color:var(--secondary-text-color);width:60px}
+            .fb .home{text-align:right}
+            .fb .crest{height:24px;width:24px;object-fit:contain;vertical-align:middle;margin:0 6px}
+            .fb .vs{text-align:center;opacity:.5;width:34px}
+            .fb .score{text-align:center;width:70px}
+            .fb .score span{background:var(--secondary-background-color);border-radius:6px;padding:3px 10px;font-weight:700}
+          </style>
+          <div class="fb">
+            {% set nm='sensor.football_matches_next_match' %}
+            {% if state_attr(nm,'home') %}
+            <div class="hero">
+              <div style="opacity:.85;font-size:13px;text-transform:uppercase;letter-spacing:1px">⚽ Next Match</div>
+              <div class="teams">
+                <img src="{{ state_attr(nm,'home_crest') }}">{{ state_attr(nm,'home') }}
+                <span style="opacity:.7">vs</span>
+                {{ state_attr(nm,'away') }}<img src="{{ state_attr(nm,'away_crest') }}">
+              </div>
+              <div class="meta">{{ state_attr(nm,'competition') }} · {{ as_timestamp(state_attr(nm,'utc_date'))|timestamp_custom('%A %d %B — %H:%M') }}
+              {% set mins=state_attr(nm,'minutes_until') %}{% if mins is not none %} · {% if mins<60 %}⏱️ in {{mins}} min{% elif mins<1440 %}⏱️ in {{(mins/60)|round(1)}} h{% else %}📅 in {{(mins/1440)|round(0)|int}} days{% endif %}{% endif %}</div>
+            </div>
+            {% endif %}
+            {% set leagues=[('Premier League','sensor.football_matches_premier_league'),('Ligue 1','sensor.football_matches_ligue_1'),('La Liga','sensor.football_matches_la_liga'),('Serie A','sensor.football_matches_serie_a'),('Champions League','sensor.football_matches_champions_league')] %}
+            {% for label,sensor in leagues %}
+            {% set ms=state_attr(sensor,'matches') %}
+            <div class="league">
+              <h2>{% if ms and ms[0].competition_emblem %}<img src="{{ ms[0].competition_emblem }}">{% endif %}{{ label }}</h2>
+              {% if ms %}{% set ns=namespace(day='') %}
+              {% for m in ms %}
+              {% set d=as_timestamp(m.utc_date)|timestamp_custom('%A %d %B') %}
+              {% if d!=ns.day %}{% set ns.day=d %}{% if not loop.first %}</table>{% endif %}
+              <div class="day">📅 {{ d }}</div><table>{% endif %}
+              <tr>
+                <td class="tm">{{ as_timestamp(m.utc_date)|timestamp_custom('%H:%M') }}</td>
+                <td class="home">{{ m.home }}<img class="crest" src="{{ m.home_crest }}"></td>
+                <td class="vs">v</td>
+                <td><img class="crest" src="{{ m.away_crest }}">{{ m.away }}</td>
+                <td class="score"><span>{% if m.home_score is not none %}{{ m.home_score }}–{{ m.away_score }}{% else %}—{% endif %}</span></td>
+              </tr>
+              {% if loop.last %}</table>{% endif %}
+              {% endfor %}
+              {% else %}<div style="opacity:.6">No upcoming fixtures.</div>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
