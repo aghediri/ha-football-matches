@@ -2,7 +2,7 @@
 
 # Football Matches — Home Assistant Integration
 
-Shows today's and upcoming fixtures for the top European football (soccer) leagues in Home Assistant, powered by the free [football-data.org](https://www.football-data.org) API.
+Shows today's and upcoming fixtures for the top European football (soccer) leagues in Home Assistant, powered by the free [football-data.org](https://www.football-data.org) API and api-football.com   
 
 ## Leagues covered
 - 🏴 English Premier League (`PL`)
