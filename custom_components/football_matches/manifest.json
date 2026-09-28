@@ -4,8 +4,9 @@
   "codeowners": ["@aghediri"],
   "config_flow": true,
   "documentation": "https://github.com/aghediri/ha-football-matches",
+  "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/aghediri/ha-football-matches/issues",
   "requirements": [],
-  "version": "1.2.0"
+  "version": "1.2.1"
 }
