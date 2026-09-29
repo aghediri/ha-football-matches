@@ -63,3 +63,36 @@ crests, league logos, matches grouped under date headers, and a score column
 
 A simpler **no-extra-card** variant using only the built-in Markdown card is
 also possible (logos + grouped dates, less styling) — see the wiki/issues.
+
+
+## Agenda card (interactive, optional)
+
+An interactive alternative to the static dashboard: [`www/football-agenda-card.js`](www/football-agenda-card.js).
+It keeps the gradient **Next Match** hero on top, then shows an **agenda for one
+match-day at a time** — the matches on that date across all five leagues,
+grouped by league. A top nav bar (◀ / date / ▶) steps only through days that
+actually have fixtures (empty days are skipped), with a **Today** badge on the
+current date. Your selected day is preserved across the 30-minute sensor refresh.
+
+**Install the card:**
+1. Copy `www/football-agenda-card.js` into your HA `config/www/` folder
+   (so it is served at `/local/football-agenda-card.js`).
+2. Settings → Dashboards → ⋮ → **Resources** → **+ Add Resource**
+   → URL `/local/football-agenda-card.js`, type **JavaScript Module** → Create.
+3. Hard-refresh the browser (Ctrl+Shift+R).
+
+**Add it to a view:**
+```yaml
+type: custom:football-agenda-card
+# optional overrides (defaults shown):
+# next_match_entity: sensor.football_matches_next_match
+# entities:
+#   - sensor.football_matches_premier_league
+#   - sensor.football_matches_ligue_1
+#   - sensor.football_matches_la_liga
+#   - sensor.football_matches_serie_a
+#   - sensor.football_matches_champions_league
+```
+
+No extra dependencies — this card is self-contained (unlike the `dashboard.yaml`
+variant, which needs the HTML Jinja2 Template card).
