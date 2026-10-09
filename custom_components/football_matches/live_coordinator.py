@@ -22,7 +22,7 @@ LIVE_POLL_MINUTES = 3        # poll interval while inside a live window
 DAILY_CALL_CAP = 90         # stay safely under free 100/day
 
 # API-Football league IDs for our competitions
-AF_LEAGUE_IDS = {39: "PL", 61: "FL1", 140: "PD", 135: "SA", 2: "CL"}
+AF_LEAGUE_IDS = {39: "PL", 61: "FL1", 140: "PD", 135: "SA", 78: "BL1", 2: "CL"}
 
 
 class LiveScoreCoordinator(DataUpdateCoordinator):

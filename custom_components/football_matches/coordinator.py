@@ -31,7 +31,15 @@ class FootballCoordinator(DataUpdateCoordinator):
         self._session = async_get_clientsession(hass)
 
     async def _fetch_competition(self, code):
-        url = f"{API_BASE}/competitions/{code}/matches?status=SCHEDULED"
+        # Date-range fetch (NOT status=SCHEDULED): includes recently FINISHED
+        # matches (final scores), today's/IN_PLAY matches, and upcoming fixtures.
+        # A status=SCHEDULED query drops a match the moment it kicks off/finishes,
+        # which hid today's games and all scores.
+        from datetime import date, timedelta
+        date_from = (date.today() - timedelta(days=3)).isoformat()  # keep 3 days of past results
+        date_to = (date.today() + timedelta(days=self._upcoming_days + 7)).isoformat()
+        url = (f"{API_BASE}/competitions/{code}/matches"
+               f"?dateFrom={date_from}&dateTo={date_to}")
         headers = {"X-Auth-Token": self._token}
         try:
             async with async_timeout.timeout(20):
@@ -91,8 +99,8 @@ class FootballCoordinator(DataUpdateCoordinator):
             elif today < kd <= window_end:
                 upcoming.append(m)
 
-            # per-league = all FUTURE fixtures (not limited to the window)
-            if k >= now:
+            # per-league = recent past (last 3 days, for score look-back) + today + future
+            if k >= (now - timedelta(days=3)):
                 c = m.get("competition_code")
                 if c in per_league and len(per_league[c]) < PER_LEAGUE_LIMIT:
                     per_league[c].append(m)

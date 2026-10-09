@@ -9,6 +9,7 @@ Shows today's and upcoming fixtures for the top European football (soccer) leagu
 - 🇫🇷 French Ligue 1 (`FL1`)
 - 🇪🇸 Spanish La Liga (`PD`)
 - 🇮🇹 Italian Serie A (`SA`)
+- 🇩🇪 German Bundesliga (`BL1`)
 - 🇪🇺 UEFA Champions League (`CL`)
 
 ## Sensors created

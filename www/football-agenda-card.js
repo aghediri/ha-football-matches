@@ -3,6 +3,7 @@
  *
  * Shows the "Next Match" hero, then an agenda for ONE match-day at a time
  * (◀ / ▶ step between days that have fixtures), grouped by league.
+ * Live/finished matches show the SCORE in the centre; upcoming show kickoff time.
  *
  * Install:
  *   Copy to <config>/www/football-agenda-card.js, then add the resource:
@@ -11,14 +12,6 @@
  *
  * Card config:
  *   type: custom:football-agenda-card
- *   # optional overrides:
- *   next_match_entity: sensor.football_matches_next_match
- *   entities:
- *     - sensor.football_matches_premier_league
- *     - sensor.football_matches_ligue_1
- *     - sensor.football_matches_la_liga
- *     - sensor.football_matches_serie_a
- *     - sensor.football_matches_champions_league
  */
 
 const DEFAULT_NEXT = "sensor.football_matches_next_match";
@@ -27,6 +20,7 @@ const DEFAULT_LEAGUES = [
   "sensor.football_matches_ligue_1",
   "sensor.football_matches_la_liga",
   "sensor.football_matches_serie_a",
+  "sensor.football_matches_bundesliga",
   "sensor.football_matches_champions_league",
 ];
 
@@ -37,7 +31,6 @@ const esc = (v) =>
 
 const pad = (n) => String(n).padStart(2, "0");
 
-// Local-date key (YYYY-MM-DD) in the browser's timezone.
 const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 const keyToDate = (k) => {
@@ -70,11 +63,22 @@ const fmtMinute = (m) => {
   return /^\d+(\+\d+)?$/.test(String(m)) ? `${m}'` : String(m);
 };
 
+const hasScore = (m) =>
+  m.home_score !== null && m.home_score !== undefined &&
+  m.away_score !== null && m.away_score !== undefined;
+
+// A match is "played or playing" if it is live, finished, or already has a score.
+const isStarted = (m) => {
+  const s = String(m.status || "").toUpperCase();
+  return m.is_live || hasScore(m) ||
+    ["IN_PLAY", "PAUSED", "LIVE", "FINISHED", "FT", "AET", "PEN"].includes(s);
+};
+
 class FootballAgendaCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._selected = null; // YYYY-MM-DD, survives hass polling updates
+    this._selected = null;
     this._lastStates = null;
   }
 
@@ -99,7 +103,6 @@ class FootballAgendaCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
-    // Only re-render when one of our entities actually changed.
     const ids = [this._config.next_match_entity, ...this._config.entities];
     const states = ids.map((id) => hass.states[id]);
     if (this._lastStates && states.every((s, i) => s === this._lastStates[i])) return;
@@ -140,13 +143,14 @@ class FootballAgendaCard extends HTMLElement {
     return [...new Set(matches.map((m) => m._key))].sort();
   }
 
-  // Keep the user's selected day across refreshes. If it's gone from the
-  // data (or nothing is selected yet), snap to the nearest upcoming match-day.
+  // Prefer TODAY when today has matches; else nearest upcoming match-day;
+  // else the last available. Preserve the user's chosen day across refreshes.
   _resolveSelected(days) {
     if (!days.length) return null;
     if (this._selected && days.includes(this._selected)) return this._selected;
-    const anchor = this._selected || dayKey(new Date());
-    return days.find((k) => k >= anchor) || days[days.length - 1];
+    const today = dayKey(new Date());
+    if (days.includes(today)) return today;              // today has matches -> open on today
+    return days.find((k) => k >= today) || days[days.length - 1];
   }
 
   // ---- rendering --------------------------------------------------------
@@ -181,27 +185,40 @@ class FootballAgendaCard extends HTMLElement {
   }
 
   _renderRow(m) {
-    const hasScore =
-      m.home_score !== null && m.home_score !== undefined &&
-      m.away_score !== null && m.away_score !== undefined;
-    const tm = m.is_live
-      ? `🔴 <span class="livemin">${esc(fmtMinute(m.minute))}</span>`
-      : hhmm(m._date);
+    const started = isStarted(m);
     const homeCrest = m.home_crest ? `<img class="crest" src="${esc(m.home_crest)}" alt="">` : "";
     const awayCrest = m.away_crest ? `<img class="crest" src="${esc(m.away_crest)}" alt="">` : "";
-    const score = hasScore ? `${esc(m.home_score)} - ${esc(m.away_score)}` : "–";
+
+    // Left meta: kickoff time, live minute, or FT
+    let tm;
+    if (m.is_live) {
+      tm = `<span class="livemin">\ud83d\udd34 ${esc(fmtMinute(m.minute))}</span>`;
+    } else if (started && hasScore(m)) {
+      tm = `<span class="ft">FT</span>`;
+    } else {
+      tm = `<span class="kick">${hhmm(m._date)}</span>`;
+    }
+
+    // Centre: score when started, else "v"
+    let centre;
+    if (started && hasScore(m)) {
+      centre = `<span class="scorebox${m.is_live ? " live" : ""}">${esc(m.home_score)}&ndash;${esc(m.away_score)}</span>`;
+    } else if (started) {
+      centre = `<span class="scorebox${m.is_live ? " live" : ""}">0&ndash;0</span>`;
+    } else {
+      centre = `<span class="vs">v</span>`;
+    }
+
     return `
-      <tr>
-        <td class="tm">${tm}</td>
-        <td class="home">${esc(m.home)}${homeCrest}</td>
-        <td class="vs">v</td>
-        <td class="away">${awayCrest}${esc(m.away)}</td>
-        <td class="score${m.is_live ? " live" : ""}"><span>${score}</span></td>
-      </tr>`;
+      <div class="row ${started ? "started" : ""}">
+        <div class="meta">${tm}</div>
+        <div class="home"><span class="tn">${esc(m.home)}</span>${homeCrest}</div>
+        <div class="mid">${centre}</div>
+        <div class="away">${awayCrest}<span class="tn">${esc(m.away)}</span></div>
+      </div>`;
   }
 
   _renderAgenda(dayMatches) {
-    // Group by league, keeping the configured sensor order.
     const groups = new Map();
     for (const m of dayMatches) {
       if (!groups.has(m._league)) {
@@ -218,7 +235,7 @@ class FootballAgendaCard extends HTMLElement {
         return `
           <div class="league">
             <h2>${g.emblem ? `<img src="${esc(g.emblem)}" alt="">` : ""}${esc(name)}</h2>
-            <table>${g.rows.map((m) => this._renderRow(m)).join("")}</table>
+            <div class="rows">${g.rows.map((m) => this._renderRow(m)).join("")}</div>
           </div>`;
       })
       .join("");
@@ -278,86 +295,66 @@ FootballAgendaCard.styles = `
   ha-card { overflow: hidden; }
   .wrap { padding: 16px; }
 
-  /* Next Match hero */
   .hero {
     background: linear-gradient(135deg, #1e3a5f, #2ec27e);
-    border-radius: 16px;
-    padding: 18px 22px;
-    color: #fff;
-    margin-bottom: 20px;
-    text-align: center;
+    border-radius: 16px; padding: 18px 22px; color: #fff;
+    margin-bottom: 20px; text-align: center;
   }
-  .hero-label {
-    font-size: 12px; letter-spacing: .12em; text-transform: uppercase; opacity: .85;
-  }
-  .hero-teams {
-    display: flex; align-items: center; justify-content: center; gap: 14px; margin: 12px 0 10px;
-  }
-  .hero-team {
-    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
-    font-size: 22px; font-weight: 700; line-height: 1.15;
-  }
+  .hero-label { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
+  .hero-teams { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 12px 0 10px; }
+  .hero-team { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 22px; font-weight: 700; line-height: 1.15; }
   .hero-team img { width: 56px; height: 56px; object-fit: contain; }
   .hero-vs { font-size: 16px; opacity: .8; }
   .hero-meta { font-size: 14px; opacity: .92; }
 
-  /* Day navigation (uses the dashboard's .day look) */
-  .day {
-    background: var(--secondary-background-color);
-    border-radius: 8px;
-    padding: 6px 12px;
-    margin: 14px 0 6px;
-    font-weight: 700;
-    font-size: 14px;
-  }
-  .nav {
-    display: flex; align-items: center; justify-content: space-between;
-    margin: 0 0 18px;
-  }
+  .day { background: var(--secondary-background-color); border-radius: 8px; padding: 6px 12px; margin: 14px 0 6px; font-weight: 700; font-size: 14px; }
+  .nav { display: flex; align-items: center; justify-content: space-between; margin: 0 0 18px; }
   .date { font-size: 16px; text-align: center; flex: 1; }
-  .arrow {
-    background: none; border: none; color: var(--primary-text-color);
-    font: inherit; font-size: 18px; padding: 4px 12px; border-radius: 8px; cursor: pointer;
-  }
+  .arrow { background: none; border: none; color: var(--primary-text-color); font: inherit; font-size: 18px; padding: 4px 12px; border-radius: 8px; cursor: pointer; }
   .arrow:hover:not([disabled]) { background: var(--primary-color); color: #fff; }
   .arrow[disabled] { opacity: .25; cursor: default; }
-  .today {
-    margin-left: 6px; font-size: 11px; padding: 2px 6px; border-radius: 6px;
-    background: #2ec27e; color: #fff; vertical-align: middle;
-  }
+  .today { margin-left: 6px; font-size: 11px; padding: 2px 6px; border-radius: 6px; background: #2ec27e; color: #fff; vertical-align: middle; }
 
-  /* League blocks */
-  .league {
-    background: var(--card-background-color);
-    border-radius: 14px;
-    padding: 14px 18px;
-    margin-bottom: 18px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.12);
-  }
-  .league h2 {
-    display: flex; align-items: center; gap: 12px;
-    font-size: 20px; margin: 0 0 10px; padding-bottom: 10px;
-    border-bottom: 2px solid var(--divider-color);
-  }
+  .league { background: var(--card-background-color); border-radius: 14px; padding: 14px 18px; margin-bottom: 18px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  .league h2 { display: flex; align-items: center; gap: 12px; font-size: 20px; margin: 0 0 10px; padding-bottom: 10px; border-bottom: 2px solid var(--divider-color); }
   .league h2 img { height: 30px; }
 
-  /* Match rows */
-  table { width: 100%; border-collapse: collapse; }
-  tr:nth-child(even) { background: rgba(127,127,127,.06); }
-  tr:hover { background: var(--primary-color); color: #fff; }
-  td { padding: 10px; vertical-align: middle; }
-  .tm { color: var(--secondary-text-color); width: 64px; white-space: nowrap; }
-  .home { text-align: right; }
-  .crest { height: 24px; width: 24px; object-fit: contain; vertical-align: middle; margin: 0 6px; }
-  .vs { text-align: center; opacity: .5; width: 34px; }
-  .score { text-align: center; width: 78px; }
-  .score span {
-    background: var(--secondary-background-color);
-    border-radius: 6px; padding: 3px 10px; font-weight: 700;
+  .rows { display: flex; flex-direction: column; }
+  /* Grid: [meta 56px] [home 1fr] [score 84px] [away 1fr] — identical on every row */
+  .row {
+    display: grid;
+    grid-template-columns: 56px 1fr 84px 1fr;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 4px;
+    border-bottom: 1px solid var(--divider-color);
   }
-  .live span { background: #e5342b; color: #fff; }
-  .livemin { color: #e5342b; font-weight: 700; font-size: 12px; }
+  .row:last-child { border-bottom: none; }
+  .row:nth-child(even) { background: rgba(127,127,127,.05); }
+  .row.started { font-weight: 600; }
 
+  .meta { text-align: center; font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
+  .kick { }
+  .ft { font-weight: 700; font-size: 12px; }
+  .livemin { color: #e5342b; font-weight: 700; font-size: 12px; white-space: nowrap; }
+
+  .home { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
+  .away { display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-width: 0; }
+  .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crest { height: 24px; width: 24px; object-fit: contain; flex: none; }
+
+  /* Centre score cell — fixed width, always dead-centre */
+  .mid { display: flex; justify-content: center; align-items: center; }
+  .vs { opacity: .45; }
+  .scorebox {
+    display: inline-block; min-width: 56px; text-align: center; box-sizing: border-box;
+    background: var(--secondary-background-color); border-radius: 6px; padding: 4px 10px;
+    font-weight: 800; font-size: 15px; letter-spacing: 1px; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .scorebox.live { background: #e5342b; color: #fff; }
+
+  .livemin { color: #e5342b; font-weight: 700; font-size: 12px; }
   .empty { text-align: center; padding: 24px 8px; color: var(--secondary-text-color); }
 `;
 
@@ -369,5 +366,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "football-agenda-card",
   name: "Football Agenda Card",
-  description: "Next match hero plus a match-day agenda grouped by league.",
+  description: "Next match hero plus a match-day agenda grouped by league, with live scores.",
 });

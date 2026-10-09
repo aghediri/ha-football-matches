@@ -17,5 +17,6 @@ COMPETITIONS = {
     "FL1": "Ligue 1",
     "PD": "La Liga",
     "SA": "Serie A",
+    "BL1": "Bundesliga",
     "CL": "Champions League",
 }
